@@ -1,4 +1,5 @@
 use crate::aggregates;
+use crate::sentry_util;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::Message;
@@ -23,12 +24,14 @@ pub fn spawn_consumer(brokers: String, pool: PgPool) {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!("kafka consumer init failed: {}", e);
+                sentry_util::capture_error(&e, &[("worker", "consumer"), ("stage", "kafka_init")]);
                 return;
             }
         };
 
         if let Err(e) = consumer.subscribe(TOPICS) {
             tracing::error!("kafka subscribe failed: {}", e);
+            sentry_util::capture_error(&e, &[("worker", "consumer"), ("stage", "subscribe")]);
             return;
         }
 
@@ -41,13 +44,26 @@ pub fn spawn_consumer(brokers: String, pool: PgPool) {
                             Ok(event) => {
                                 if let Err(e) = aggregates::store_event(&pool, &topic, &event).await {
                                     tracing::warn!("store event error: {}", e);
+                                    sentry_util::capture_error(
+                                        &e,
+                                        &[("worker", "consumer"), ("stage", "store_event")],
+                                    );
                                 }
                             }
-                            Err(e) => tracing::warn!("event parse error: {}", e),
+                            Err(e) => {
+                                tracing::warn!("event parse error: {}", e);
+                                sentry_util::capture_error(
+                                    &e,
+                                    &[("worker", "consumer"), ("stage", "parse")],
+                                );
+                            }
                         }
                     }
                 }
-                Err(e) => tracing::warn!("kafka error: {}", e),
+                Err(e) => {
+                    tracing::warn!("kafka error: {}", e);
+                    sentry_util::capture_error(&e, &[("worker", "consumer"), ("stage", "recv")]);
+                }
             }
         }
     });

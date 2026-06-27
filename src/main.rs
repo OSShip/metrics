@@ -2,16 +2,22 @@ mod aggregates;
 mod consumer;
 mod handlers;
 mod metrics_middleware;
+mod sentry_util;
 
 use axum::{routing::get, Json, Router};
 use handlers::AppState;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use tracing_subscriber::prelude::*;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    let _sentry = sentry_util::init_sentry("metrics");
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(sentry::integrations::tracing::layer())
+        .init();
 
     let database_url = std::env::var("DATABASE_URL_METRICS")
         .unwrap_or_else(|_| "postgres://osship:osship_secret@postgres:5432/osship?sslmode=disable".into());
