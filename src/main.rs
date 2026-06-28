@@ -9,14 +9,24 @@ use handlers::AppState;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use sentry::integrations::tracing::EventFilter;
 use tracing_subscriber::prelude::*;
 
 #[tokio::main]
 async fn main() {
     let _sentry = sentry_util::init_sentry("metrics");
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::registry()
+        .with(env_filter)
         .with(tracing_subscriber::fmt::layer())
-        .with(sentry::integrations::tracing::layer())
+        .with(sentry::integrations::tracing::layer().event_filter(|metadata| {
+            match *metadata.level() {
+                tracing::Level::ERROR => EventFilter::Event,
+                tracing::Level::WARN | tracing::Level::INFO => EventFilter::Breadcrumb,
+                _ => EventFilter::Ignore,
+            }
+        }))
         .init();
 
     let database_url = std::env::var("DATABASE_URL_METRICS")
@@ -34,6 +44,7 @@ async fn main() {
 
     let state = Arc::new(AppState { pool: pool.clone() });
     let brokers = std::env::var("KAFKA_BROKERS").unwrap_or_else(|_| "kafka:9092".into());
+    tracing::info!(brokers = %brokers, "starting metrics kafka consumer");
     consumer::spawn_consumer(brokers, pool);
 
     let recorder = PrometheusBuilder::new()
