@@ -9,7 +9,6 @@ use handlers::AppState;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
-use sentry::integrations::tracing::EventFilter;
 use tracing_subscriber::prelude::*;
 
 #[tokio::main]
@@ -20,14 +19,14 @@ async fn main() {
     tracing_subscriber::registry()
         .with(env_filter)
         .with(tracing_subscriber::fmt::layer())
-        .with(sentry::integrations::tracing::layer().event_filter(|metadata| {
-            match *metadata.level() {
-                tracing::Level::ERROR => EventFilter::Event,
-                tracing::Level::WARN | tracing::Level::INFO => EventFilter::Breadcrumb,
-                _ => EventFilter::Ignore,
-            }
-        }))
+        .with(
+            sentry::integrations::tracing::layer()
+                .event_filter(sentry_util::tracing_event_filter),
+        )
         .init();
+    if sentry_util::is_enabled() {
+        tracing::info!(service = "metrics", "sentry initialized with structured logs");
+    }
 
     let database_url = std::env::var("DATABASE_URL_METRICS")
         .unwrap_or_else(|_| "postgres://osship:osship_secret@postgres:5432/osship?sslmode=disable".into());
