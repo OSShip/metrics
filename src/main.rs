@@ -29,7 +29,7 @@ async fn main() {
     }
 
     let database_url = std::env::var("DATABASE_URL_METRICS")
-        .unwrap_or_else(|_| "postgres://osship:osship_secret@postgres:5432/osship?sslmode=disable".into());
+        .expect("DATABASE_URL_METRICS must be set");
     let pool = PgPoolOptions::new()
         .after_connect(|conn, _| {
             Box::pin(async move {
